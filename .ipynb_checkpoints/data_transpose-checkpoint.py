@@ -37,29 +37,41 @@ value_schema = {'SALES':'FLOAT'}
 table_id = 'my-bq-demo:output.out111'
 
 
+class AddTen(beam.DoFn):
+    def process(self, element):
+        rt_elem = element
+        rt_elem['SALES'] = rt_elem['SALES'] + 10
+        yield rt_elem
+
 class GetPivotValues(beam.DoFn):
     def process(self, element):
-        rt_elem = {}
+        rt_set = set()
         row = element
         for field in pivot_field:
-            rt_elem = {field, row[field]}
-            yield rt_elem
+            rt_set = (field, row[field])
+        yield rt_set
         
-class UniqueList(beam.DoFn):
-    def process(self, element):
-        rt_elem =  list(set(element[1])) 
-        yield rt_elem
-        
+
 class FoldPivotValues(beam.DoFn):
     def process(self, element):
+        rt_l = []
         rt_dict={}
-        for piv in element:
-            for val in value_schema:
-                rt_dict['name'] = f"{piv}_{val}"
-                rt_dict['type'] = value_schema[val]
-                rt_dict['mode'] = 'NULLABLE'
-                return rt_dict
+        
+        unique_field_values = set(element[1])
+        for piv in unique_field_values:
+                for val in value_schema:
+                    rt_dict['name'] = f"{piv}_{val}"
+                    rt_dict['type'] = value_schema[val]
+                    rt_dict['mode'] = 'NULLABLE'
+                    rt_l.append(rt_dict)
+                    rt_dict={}
+        return rt_l
+ 
+
     
+def getDynamicMap(element):
+    pass        
+
 
 
 def run(argv=None):
@@ -92,10 +104,7 @@ def run(argv=None):
         pivoted_schema = ( input_table_rows
                         | "Get Pivot Schema" >> beam.ParDo(GetPivotValues()) 
                         | "Group by pivot field" >> beam.GroupByKey()
-                        | "Get unique list" >> beam.ParDo(UniqueList())
-                        | "Fold pivot values to columns" >>  beam.ParDo(
-                                FoldPivotValues())
-                        | beam.CombineGlobally(beam.combiners.ToListCombineFn())
+                        | "Fold pivot values to columns" >> beam.ParDo(FoldPivotValues())
                         )
 
 
