@@ -25,16 +25,13 @@ INPUT_SCHEMA = {
         'mode': 'NULLABLE'
         }]
         }
-ID_SCHEMA = {'name': 'ID', 
-             'type': 'INTEGER', 
-              'mode': 'REQUIRED'
-                            }
+
 OUTPUT_SCHEMA ={}
 key_field = ['ID']
 pivot_field = ['CLASS']
 value_field = ['SALES']
 value_schema = {'SALES':'FLOAT'}
-table_id = 'my-bq-demo:output.out111'
+table_id = 'my-bq-demo:output.schema'
 
 
 class GetPivotValues(beam.DoFn):
@@ -60,7 +57,13 @@ class FoldPivotValues(beam.DoFn):
                 rt_dict['mode'] = 'NULLABLE'
                 return rt_dict
     
-
+def getKeyFieldSchema(list_keys):
+    rt_l = []
+    for key in list_keys:
+        for d in INPUT_SCHEMA['fields']:
+            if (d['name'] == key):
+                rt_l.append(d)
+    return rt_l
 
 def run(argv=None):
     parser = argparse.ArgumentParser()
@@ -85,31 +88,31 @@ def run(argv=None):
     '''
 
     with beam.Pipeline(argv=beam_args) as p:
+        
+        list_key_dict = getKeyFieldSchema(key_field)
+        key_schema = (p 
+                      | "Create Key Schema" >> beam.Create(list_key_dict)
+                     )
+        
         input_table_rows = ( p 
-                    | "Read BigQuery table" >> bq.ReadFromBigQuery(
+                        | "Read BigQuery table" >> bq.ReadFromBigQuery(
                         table = f"{PROJECT_ID}:{DATASET_ID}.{TABLE_ID}" )
-                    )
+                        )
         pivoted_schema = ( input_table_rows
                         | "Get Pivot Schema" >> beam.ParDo(GetPivotValues()) 
                         | "Group by pivot field" >> beam.GroupByKey()
                         | "Get unique list" >> beam.ParDo(UniqueList())
                         | "Fold pivot values to columns" >>  beam.ParDo(
                                 FoldPivotValues())
-                        | beam.CombineGlobally(beam.combiners.ToListCombineFn())
-                        )
+                        # | beam.CombineGlobally(beam.combiners.ToListCombineFn())
+                            )
 
-
-        key_schema = (p 
-                      | "Create Key Schema" >> beam.Create(
-                          [ID_SCHEMA]
-                      )
-                     )
-
-        dynamic_schema = ( 
-                # 4) Create dynamic schema view for writing to output table.
-                (pivoted_schema, key_schema)
-                | "Convert dynamic schema map" >> beam.Flatten()
-        )
+        dynamic_schema = ( (key_schema,pivoted_schema) 
+                          | 'Merge Schema' >> beam.Flatten()
+                          | "Dynamic Schema" >>     beam.CombineGlobally(
+                              beam.combiners.ToListCombineFn())
+                            )
+        
         
         # (input_table_rows
         #     | "Separate key fields" >> 
@@ -126,18 +129,18 @@ def run(argv=None):
         
 
 
-        # results = (query_results 
+        # results = (p | beam.Create() 
                     
                   
-                    # | 'Write to BigQuery' >> bq.WriteToBigQuery(
-                    #         table = table_id, schema = SCHEMA,
-                    #         create_disposition = bq.BigQueryDisposition.CREATE_IF_NEEDED,
-                    #         write_disposition=bq.BigQueryDisposition.WRITE_TRUNCATE)
-                    # )
-        # results | "Write the output" >> beam.io.WriteToText(
-        #         args.output, file_name_suffix=".csv"
+        #             | 'Write to BigQuery' >> bq.WriteToBigQuery(
+        #                     table = table_id, schema = SCHEMA,
+        #                     create_disposition = bq.BigQueryDisposition.CREATE_IF_NEEDED,
+        #                     write_disposition=bq.BigQueryDisposition.WRITE_TRUNCATE)
+        #             )
+        (dynamic_schema | "Write the output" >> beam.io.WriteToText(
+                args.output, file_name_suffix=".txt")
         
-        
+        )
 
 if __name__ == "__main__" :
     logging.getLogger().setLevel(logging.WARNING)
