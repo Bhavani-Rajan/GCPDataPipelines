@@ -2,47 +2,53 @@ import argparse
 import logging
 import csv
 import sys 
+import requests
 
 import apache_beam as beam
 import apache_beam.io.gcp.bigquery as bq
 
-SCHEMA_RAW = {'fields':[  {"mode": "REQUIRED","name": "id","type": "INTEGER"},
-                    #   {"mode": "NULLABLE","name": "name","type": "STRING"},
-                      {"mode": "NULLABLE", "name": "host_id","type": "INTEGER"},
+SCHEMA_RAW = {'fields':[  {"mode": "REQUIRED","name": "id","type": "STRING"},
+                      {"mode": "NULLABLE","name": "name","type": "STRING"},
+                      {"mode": "NULLABLE", "name": "host_id","type": "STRING"},
                       {"mode": "NULLABLE","name": "host_name","type": "STRING"},
                       {"mode": "NULLABLE","name": "neighbourhood_group","type": "STRING"},
                       {"mode": "NULLABLE","name": "neighbourhood","type": "STRING"},
                       {"mode": "NULLABLE","name": "latitude","type": "FLOAT"},
                       {"mode": "NULLABLE","name": "longitude","type": "FLOAT"},
                       {"mode": "NULLABLE","name": "room_type", "type": "STRING"},
-                      {"mode": "NULLABLE","name": "price", "type": "INTEGER" },
+                      {"mode": "NULLABLE","name": "price", "type": "FLOAT" },
                       {"mode": "NULLABLE","name": "minimum_nights","type": "INTEGER"},
                       {"mode": "NULLABLE","name": "number_of_reviews","type": "INTEGER"},
-                      {"mode": "NULLABLE","name": "last_review","type": "DATE"},
+                      {"mode": "NULLABLE","name": "last_review","type": "STRING"},
                       {"mode": "NULLABLE","name": "reviews_per_month","type": "FLOAT"},
                       {"mode": "NULLABLE","name": "calculated_host_listings_count", "type": "INTEGER"},
                       {"mode": "NULLABLE","name": "availability_365", "type": "INTEGER"}
                 ]}
+            
 SCHEMA_TRANSFORMED = {'fields':[  {"mode": "NULLABLE","name": "neighbourhood","type": "STRING"},
-                      {"mode": "NULLABLE","name": "count_listings","type": "INTEGER"}
+                      {"mode": "NULLABLE","name": "count_listings","type": "INTEGER"},
+                      {"mode": "NULLABLE","name": "population","type": "INTEGER"},
+                      {"mode": "NULLABLE","name": "house_price_sq_ft","type": "INTEGER"},
+                      {"mode": "NULLABLE","name": "coll_edu_percentage","type": "FLOAT"}
                       ]}
-# SCHEMA_RAW = 'id:INTEGER,host_id:INTEGER,host_name:STRING,neighbourhood_group:STRING, \
-#             neighbourhood:STRING,latitude:FLOAT,longitude:FLOAT,room_type:STRING, \
-#             price:INTEGER,minimum_nights:INTEGER,number_of_reviews:INTEGER,	\
-#             last_review:DATE,reviews_per_month:FLOAT, \
-#             calculated_host_listings_count:INTEGER,	availability_365:INTEGER'
+# SCHEMA_RAW = 'id:string,name:string,host_id:string,host_name:string, \
+#             neighbourhood_group:string,neighbourhood:string, \
+#             latitude:float,longitude:float,room_type:string, \
+#             price:float,minimum_nights:integer,number_of_reviews:integer, \
+#             last_review:string,reviews_per_month:float, \
+#             calculated_host_listings_count:integer,availability_365:integer'
 
 # SCHEMA_TRANSFORMED = 'neighbourhood:STRING, count_listings:INTEGER'
-table_id_raw = 'my-bq-demo:NYC.raw_no_name'
-table_id_transformed = 'my-bq-demo:NYC.transformed'
-
-
+table_id_raw = 'my-bq-demo:NYC.raw_with_name'
+table_id_transformed = 'my-bq-demo:NYC.transformed_with_info'
+input_table_id = 'my-bq-demo:input.AB_NYC_with_names'
+url_neigh_data = 'https://my-bq-demo.uw.r.appspot.com/neighbourhood/'
 
 
 def parse_line(element):
     values = element.split(",")
     row = dict(
-            zip(('id','host_id','host_name','neighbourhood_group','neighbourhood',
+            zip(('id','name','host_id','host_name','neighbourhood_group','neighbourhood',
             'latitude',	'longitude','room_type','price','minimum_nights','number_of_reviews',
             'last_review',	'reviews_per_month','calculated_host_listings_count','availability_365'),
                 values))
@@ -55,19 +61,45 @@ class SplitRowByNeighbourhood(beam.DoFn):
         id = element['id']
         yield (neighbourhood,id)
 
+def get_neighbourhood_details(element):
+    # url_neigh_data = 'https://my-bq-demo.uw.r.appspot.com/neighbourhood/'
+    name = element
+    url = f"{url_neigh_data}{name}"
+    response = requests.get(url)
+ 
+    return response.json()
+
 def covertToTableRow(element):
-    values = [element[0],element[1]]
+    # values = [element[0],element[1]]
+    values = []
+    neighbourhood_name = element[0]
+    count_listings = element[1]
+
+    neighbourhood_details = get_neighbourhood_details(neighbourhood_name)
+    
+    population = neighbourhood_details["population"]
+    house_price_sq_ft = neighbourhood_details["house_price_sq_ft"]
+    coll_edu_percentage = neighbourhood_details["coll_edu_percentage"]
+
+    values.append(neighbourhood_name)
+    values.append(count_listings)
+    values.append(population)
+    values.append(house_price_sq_ft)
+    values.append(coll_edu_percentage)
+
     row = dict(
-            zip(('neighbourhood','count_listings'),
+            zip(('neighbourhood','count_listings','population','house_price_sq_ft','coll_edu_percentage'),
                 values))
     return row
+
+
 
 def run(argv=None):
     """The main function which creates the pipeline and runs it."""
 
     parser = argparse.ArgumentParser()
 
-    parser.add_argument('--input')
+    # parser.add_argument('--input')
     # parser.add_argument('--output')
 
     # Parse arguments from the command line.
@@ -75,17 +107,28 @@ def run(argv=None):
 
     # DataIngestion is a class we built in this script to hold the logic for
     # transforming the file into a BigQuery table.
-   
-
+    # query = f" SELECT * FROM {input_table_id}"
+    # qry_pipe(
+    #                     # table = input_table_id
+    #                     query = query,
+    #                     output = table_id_raw,
+    #                     output_schema = SCHEMA_RAW
+    #                     )
+    # qry_pipe.run_bq_pipeline(argv)
     with beam.Pipeline(argv=pipeline_args) as p:
+        # query = f" SELECT * FROM {input_table_id}"
+        # qry_pipe.run_bq_pipeline() --query query --output table_id_raw --output_schema = SCHEMA_RAW
+        # input_table_rows = ( 
+        #             p
+        #             | 'Read from a File' >> beam.io.ReadFromText(args.input,
+        #                                                         skip_header_lines=1)
+        #             | 'String To BigQuery Row' >> beam.Map(parse_line) 
+        #             )
+
         input_table_rows = ( 
                     p
-                    | 'Read from a File' >> beam.io.ReadFromText(args.input,
-                                                                skip_header_lines=1)
-                    | 'String To BigQuery Row' >> beam.Map(parse_line) 
-                    )
-
-        
+                    | 'Read from a File' >> bq.ReadFromBigQuery(table = input_table_id)
+        )
         transformed_data = (input_table_rows
                              | "Tranform the data" >> beam.ParDo(SplitRowByNeighbourhood())
                              | "Combine by neighborhood" >> beam.CombinePerKey(beam.combiners.CountCombineFn())
@@ -105,11 +148,8 @@ def run(argv=None):
                     create_disposition = bq.BigQueryDisposition.CREATE_IF_NEEDED,
                     write_disposition= bq.BigQueryDisposition.WRITE_TRUNCATE)
                     )
-    # schema_side_inputs if tuple need to be passed in as table schema
-    # result = p.run()
-    # result.wait_until_finish()
 
-
+    
 
 if __name__ == '__main__':
     logging.getLogger().setLevel(logging.WARNING)
