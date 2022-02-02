@@ -1,5 +1,5 @@
 from flask import Flask
-import pandas as pd
+from read_csv_no_pandas import read_csv
 
 app = Flask(__name__)
 
@@ -13,23 +13,31 @@ def welcome():
 
 @app.route('/neighbourhood/<name>')
 def get_neighbourhood_details(name):
-    df = pd.read_csv('gs://my-bq-demo-bucket/NYC/neighbourhood_data.csv')
+
+    bucket_name='my-bq-demo-bucket'
+    blob_name = 'NYC/neighbourhood_data.csv'
+    l_rows = read_csv(bucket_name,blob_name)
 
     population = 0
     house_price = 0
     coll_edu_percentage = 0
 
+    for d in l_rows:
+        if (d['neighbourhood'].str.lower() == name.lower()) :
+            population = d['population']
+            house_price = d['housing_price_per_sq_ft']
+            coll_edu_percentage = d['college_edu_percentage']
     rt_d = {}
 
-    result = df[df['neighbourhood'].str.lower() == name.lower()]
-    pop_in_l = result['population'].to_list()
-    house_price_l = result['housing_price_per_sq_ft'].to_list()
-    coll_edu_percentage_l = result['college_edu_percentage'].to_list()
+    # result = df[df['neighbourhood'].str.lower() == name.lower()]
+    # pop_in_l = result['population'].to_list()
+    # house_price_l = result['housing_price_per_sq_ft'].to_list()
+    # coll_edu_percentage_l = result['college_edu_percentage'].to_list()
 
-    if len(pop_in_l) > 0:
-        population = pop_in_l[0]
-        house_price = house_price_l[0]
-        coll_edu_percentage = coll_edu_percentage_l[0]
+    # if len(pop_in_l) > 0:
+    #     population = pop_in_l[0]
+    #     house_price = house_price_l[0]
+    #     coll_edu_percentage = coll_edu_percentage_l[0]
     
     rt_d['neighbourhood'] = name
     rt_d['population'] = population
