@@ -23,7 +23,7 @@ def get_neighbourhood_details(name):
     coll_edu_percentage = 0
 
     for d in l_rows:
-        if (d['neighbourhood'].str.lower() == name.lower()) :
+        if (d['neighbourhood'].lower() == name.lower()) :
             population = d['population']
             house_price = d['housing_price_per_sq_ft']
             coll_edu_percentage = d['college_edu_percentage']
